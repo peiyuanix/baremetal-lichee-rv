@@ -10,4 +10,4 @@ _yuan_spl_start:
 	li t0, 0x00000001
 	sw t0, 0x40(gp)   # set PB_0 state to 1
 _infi:
-	j _yuan_spl_start
+	j _infi
