@@ -121,3 +121,12 @@ riscv64-linux-gnu-objcopy -O binary -S bin/yuan_spl.elf bin/yuan_spl.bin
 ```sh
 sudo dd if=bin/BOOT0.bin of=${your_sdcard} bs=512 seek=16 conv=sync
 ```
+
+## 参考资料  
+- D1_User_Manual_V0.1(Draft Version).pdf
+- <https://linux-sunxi.org/Bootable_SD_card>
+- <https://linux-sunxi.org/BROM>
+- <https://linux-sunxi.org/EGON>
+- <https://github.com/u-boot/u-boot/blob/master/tools/mksunxiboot.c>
+- <https://github.com/Ouyancheng/FlatHeadBro/blob/master/boot0/boot0-header.c>
+
