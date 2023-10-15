@@ -9,7 +9,7 @@ Lichee RV 裸机编程，将自己写的裸机程序烧录至 SD 卡，实现上
 当然，写自己的 Bootloader 和 Kernel 或许并不一定需要依赖自己的 SPL，使用固件中通用的 OpenSBI，U-Boot 也可以做，但是让板子从头到尾都运行自己写的代码也是一件很有趣的事情。
 
 
-## D1 启动流程
+## D1 SoC 启动流程
 
 D1 这款 SoC 启动流程为：  
 
@@ -17,7 +17,7 @@ D1 这款 SoC 启动流程为：
 - BROM 检查 `FEL` 引脚状态。如果用户按了 FEL 按钮，则跳转到 FEL 模块并执行，这种模式下可以使用 [xfel](https://github.com/xboot/xfel) 工具操作 Soc；  
 - 否则 BROM 会：
   - 寻找启动设备；  
-  - 在启动设备的特定位置，通过检查是否存在 `eGON.BT0` 来判断是否存在 `BOOT0`；  
+  - 在启动设备的特定位置，检查是否存在 `eGON.BT0` 标记来判断是否存在 `BOOT0`；  
   - 加载 `BOOT0` 到 `SRAM: 0x20000`，并对 `BOOT0` 进行完整性校验，然后执行；  
   
   如果未找到设备、未找到 BOOT0，或者校验不通过，则跳转到 FEL 模块执行；  
@@ -32,7 +32,20 @@ D1 这款 SoC 启动流程为：
 
 ## BOOT0 规范
 
-SD 卡上的 BOOT0 部分包括 `boot_file_head_t` 和实际的 BOOT0 代码。
+### BOOT0 存储位置
+
+SD 卡的第 **16** 个扇区，也就是 `0x2000` 处。  
+
+### BOOT0 格式
+
+- BOOT0 区域由 header 和 boot0 程序组成，先是 header，然后是 boot0 程序，header 和 boot0 都需要适当对齐，因此可能存在一些 padding；
+- 具体来说，BOOT0 包括：
+  - header  
+  - boot0 程序  
+  - 为对齐而填充的 padding  
+
+
+header 定义如下：  
 
 ```c
 typedef struct __attribute__((packed)) boot_file_head
@@ -50,3 +63,61 @@ typedef struct __attribute__((packed)) boot_file_head
 } boot_file_head_t;
 ```
 
+`boot_file_head_t` 中，  
+- `jump_instruction` 是一条跳转指令，用于跳转到 boot0 程序。  
+  这是因为 BROM 加载 BOOT0 时，并非只加载程序代码，而是第 16 扇区起始处开始读取 header 和 boot0 程序，并放置到 SRAM 起始处 `0x20000`，校验通过后从 `0x20000` 开始执行，由于此处是一个 header，所以起始处有一个跳转指令，跳过 header 内容，至 boot0 程序继续执行。  
+- `magic[8]` 即为 `eGON.BT0`，BROM 会初步检查是否存在此标记来判断是否存在 BOOT0；
+- `check_sum` 是整个 BOOT0 区域的校验和，BROM 会计算校验和是否正确来校验 BOOT0 的合法性。校验和生成逻辑为：  
+  ```c
+  // STEP-1：初始校验和为 0
+  check_sum = 0
+
+  // STEP-2: 计算校验和之前，赋给 BOOT0.header 中的 check_sum 一个给定的初值
+  BOOT0.header.check_sum = 0x5F0A6C39
+
+  // STEP-3: 将 BOOT0 视为 u32 数组，依次读取其中每一个 u32_val
+  //         BOOT0 的长度由 BOOT0.header.length 确定  
+  for u32_val in BOOT0:
+    // 将 u32_val 加到 check_sum 上
+    check_sum += u32_val
+  
+  // STEP-4: 此处得到正确的 check_sum  
+  BOOT0.header.check_sum = check_sum
+  ```
+- `length` 存储整个 BOOT0 区域的长度，包括 header、boot0、padding，上述校验和计算所涵盖的 BOOT0 范围即由 `length` 限定；  
+- 其它字段似乎并不是很重要；  
+
+## 项目内容  
+
+项目包含一个示例裸机程序和一个 BOOT0 生成工具。
+
+### 示例裸机程序 - GPIO 点灯  
+
+#### 程序文件
+
+- [yuan_spl.s](/yuan_spl.s) : 该程序将 PB_0 引脚设置为 OUTPUT 模式，并将其状态设为 1，如果连接 LED 灯，就能看到灯亮起  
+- [yuan_spl.ld](/yuan_spl.ld) : 链接脚本，其中指定了程序加载地址，在 BOOT0 header 之后，即 `0x20030`  
+
+#### 编译并提取 flat binary  
+
+```sh
+# mkdir -p bin
+riscv64-linux-gnu-as yuan_spl.s -o bin/yuan_spl.o
+riscv64-linux-gnu-ld -T yuan_spl.ld bin/yuan_spl.o -o bin/yuan_spl.elf
+riscv64-linux-gnu-objcopy -O binary -S bin/yuan_spl.elf bin/yuan_spl.bin
+```
+
+### BOOT0 生成工具  
+
+`mksunxiboot.c` 文件可单独编译成可执行文件，它可以读取 flat binary，生成 BOOT0 header，并将 header 和 flat binary 拼装起来输出为可写入的 BOOT0 数据。  
+```sh
+# mkdir -p tools
+# gcc -o tools/mksunxiboot mksunxiboot.c
+./tools/mksunxiboot bin/yuan_spl.bin bin/BOOT0.bin
+```
+
+将生成的 BOOT0 写入 SD 卡第 16 扇区，即可上电执行：
+
+```sh
+sudo dd if=bin/BOOT0.bin of=${your_sdcard} bs=512 seek=16 conv=sync
+```
