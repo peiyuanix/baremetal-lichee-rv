@@ -1,6 +1,7 @@
 HOST_CC := gcc
 CROSS_COMPILE := riscv64-linux-gnu-
 AS := ${CROSS_COMPILE}as
+CC := ${CROSS_COMPILE}gcc
 LD := ${CROSS_COMPILE}ld
 OBJCOPY := ${CROSS_COMPILE}objcopy
 SDCARD := "replace_device_in_burn_of_makefile_with_your_sdcard"
@@ -8,9 +9,10 @@ SDCARD := "replace_device_in_burn_of_makefile_with_your_sdcard"
 bin/BOOT0.bin: bin/yuan_spl.bin tools/mksunxiboot
 	./tools/mksunxiboot bin/yuan_spl.bin bin/BOOT0.bin
 
-bin/yuan_spl.bin: yuan_spl.s yuan_spl.ld
-	${AS} yuan_spl.s -o bin/yuan_spl.o
-	${LD} -T yuan_spl.ld bin/yuan_spl.o -o bin/yuan_spl.elf
+bin/yuan_spl.bin: yuan_spl_init.s yuan_spl.c yuan_spl.ld
+	${AS} yuan_spl_init.s -o bin/yuan_spl_init.asmo
+	${CC} --freestanding -c -O0 yuan_spl.c -o bin/yuan_spl.co
+	${LD} --no-relax -T yuan_spl.ld bin/yuan_spl_init.asmo bin/yuan_spl.co -o bin/yuan_spl.elf
 	${OBJCOPY} -O binary -S bin/yuan_spl.elf bin/yuan_spl.bin
 
 dis: bin/yuan_spl_bootable.bin
