@@ -91,6 +91,8 @@ typedef struct __attribute__((packed)) boot_file_head
 
 项目包含一个示例裸机程序和一个 BOOT0 生成工具。
 
+C 语言版本在 [c-language](https://github.com/peiyuanix/baremetal-lichee-rv/tree/c-language) 分支。
+
 ### 示例裸机程序 - GPIO 点灯  
 
 #### 程序文件
